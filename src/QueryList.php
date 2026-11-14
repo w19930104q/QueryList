@@ -40,6 +40,7 @@ use QL\Services\MultiRequestService;
  * @method QueryList postJson($url,$args = null,$otherArgs = [])
  * @method MultiRequestService multiGet($urls)
  * @method MultiRequestService multiPost($urls)
+ * @method \QL\Services\Batch\BatchResult[] batchCollect(array $tasks, array $options = [])
  * @method QueryList use($plugins,...$opt)
  * @method QueryList pipe(Closure $callback = null)
  */

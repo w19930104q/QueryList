@@ -187,6 +187,50 @@ $ql->get('http://xxx.com/admin/page');
 //echo $ql->getHtml();
 ```
 
+#### 批量映射采集（多供应商目录）
+`batchCollect` 一次调用采集一批相互独立的目标（例如多个供应商目录）。每个任务拥有隔离的解析上下文、Cookie 罐与请求头——并发响应不会共用同一个 QueryList 文档；Cookie 和请求头只沿该任务的后继（分页）请求继承，不会泄漏到其他任务。结果按输入顺序返回；单站失败不中断其他任务；重试不会重复产出记录。
+
+```php
+$results = QueryList::batchCollect([
+    [
+        'url'     => 'http://supplier-a.com/catalog?page=1',
+        'headers' => ['X-Supplier-Token' => 'token-A'],   // 任务级请求头，分页请求继承
+        'cookies' => ['session=aaa; Path=/'],             // 任务级 Cookie 罐（数组 / 字符串 / CookieJar）
+        'rules'   => ['name' => ['.name', 'text'], 'price' => ['.price', 'text']],
+        'range'   => '.product',
+        // 返回下一页地址（支持相对地址），返回 null 结束分页
+        'success' => function (QueryList $ql) {
+            return $ql->find('.next')->attr('href') ?: null;
+        },
+    ],
+    [
+        'url'    => 'http://supplier-b.com/items',
+        'parser' => function (QueryList $ql) {            // 自定义解析，替代 rules
+            return $ql->find('.item')->map(function ($item) {
+                return ['title' => $item->find('h3')->text()];
+            })->all();
+        },
+    ],
+], [
+    'concurrency' => 5,        // 并发上限
+    'retries'     => 2,        // 失败请求重试次数（默认仅 GET，POST 见 retry_post）
+    'max_pages'   => 10,       // 单任务页数上限，0 为不限制
+]);
+
+foreach ($results as $result) {         // QL\Services\Batch\BatchResult[]，按输入顺序
+    if ($result->isSuccess()) {
+        print_r($result->getRecords()); // 全部页面按页序合并的记录
+        echo $result->getFinalUrl();    // 最终 URL（跟踪重定向与分页）
+    } else {
+        echo $result->getError()->getMessage();
+    }
+    echo $result->getRequestCount();    // 实际发出的请求数（含重试）
+}
+```
+
+任务字段：`url`（必填）、`method`（GET/POST）、`args`（查询/表单参数）、`headers`、`cookies`、`options`（任务级 Guzzle 选项）、`rules` + `range`（标准规则 API）或 `parser`（自定义闭包）、`success`（分页回调）、`retry_post`（POST 默认不重试，置 true 后参与重试）。
+全局选项：`concurrency`、`retries`、`retry_delay_ms`、`max_pages`、`client_options`（附加 Guzzle 选项；其中的 `headers`/`cookies` 会被剔除，以保护任务间隔离）。
+
 #### Form表单操作
 模拟登陆GitHub
 ```php

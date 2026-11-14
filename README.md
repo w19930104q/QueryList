@@ -189,6 +189,50 @@ $ql->get('http://xxx.com/admin/page');
 //echo $ql->getHtml();
 ```
 
+#### Batch collect (multi-supplier catalogs)
+`batchCollect` crawls a batch of independent targets (e.g. several supplier catalogs) in one call. Every task gets its own isolated parsing context, cookie jar and headers — concurrent responses never share a QueryList document, and cookies/headers are only inherited by the follow-up (pagination) requests of the same task, never leaked across tasks. Results come back in input order; one failing site does not interrupt the others, and retries never produce duplicate records.
+
+```php
+$results = QueryList::batchCollect([
+    [
+        'url'     => 'http://supplier-a.com/catalog?page=1',
+        'headers' => ['X-Supplier-Token' => 'token-A'],   // per-task headers, inherited by its next pages
+        'cookies' => ['session=aaa; Path=/'],             // per-task cookie jar (array / string / CookieJar)
+        'rules'   => ['name' => ['.name', 'text'], 'price' => ['.price', 'text']],
+        'range'   => '.product',
+        // Return the next page URL (relative URLs allowed), or null to stop
+        'success' => function (QueryList $ql) {
+            return $ql->find('.next')->attr('href') ?: null;
+        },
+    ],
+    [
+        'url'    => 'http://supplier-b.com/items',
+        'parser' => function (QueryList $ql) {            // custom parser instead of rules
+            return $ql->find('.item')->map(function ($item) {
+                return ['title' => $item->find('h3')->text()];
+            })->all();
+        },
+    ],
+], [
+    'concurrency' => 5,        // max in-flight requests
+    'retries'     => 2,        // retries per failed request (GET only, see retry_post)
+    'max_pages'   => 10,       // safety cap of pages per task, 0 = unlimited
+]);
+
+foreach ($results as $result) {         // QL\Services\Batch\BatchResult[], in input order
+    if ($result->isSuccess()) {
+        print_r($result->getRecords()); // merged records of all pages, in page order
+        echo $result->getFinalUrl();    // last requested URL (redirects & pagination tracked)
+    } else {
+        echo $result->getError()->getMessage();
+    }
+    echo $result->getRequestCount();    // real HTTP requests sent (retries included)
+}
+```
+
+Task fields: `url` (required), `method` (GET/POST), `args` (query/form params), `headers`, `cookies`, `options` (per-task Guzzle options), `rules` + `range` (standard QueryList rules API) or `parser` (custom closure), `success` (next-page resolver), `retry_post` (POST requests are not retried unless this is true).
+Global options: `concurrency`, `retries`, `retry_delay_ms`, `max_pages`, `client_options` (extra Guzzle options; `headers`/`cookies` inside are stripped to protect per-task isolation).
+
 #### Submit forms
 Login GitHub
 ```php

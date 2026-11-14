@@ -10,6 +10,7 @@ namespace QL\Providers;
 
 use QL\Contracts\ServiceProviderContract;
 use QL\Kernel;
+use QL\Services\Batch\BatchCollectService;
 use QL\Services\HttpService;
 use QL\Services\MultiRequestService;
 
@@ -35,6 +36,10 @@ class HttpServiceProvider implements ServiceProviderContract
 
         $kernel->bind('multiPost',function (...$args){
             return new MultiRequestService($this,'post',...$args);
+        });
+
+        $kernel->bind('batchCollect',function (...$args){
+            return BatchCollectService::collect($this,...$args);
         });
     }
 }
